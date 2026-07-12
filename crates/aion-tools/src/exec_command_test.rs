@@ -1,5 +1,32 @@
 use super::*;
 
+#[tokio::test]
+async fn concurrent_commands_keep_environment_scoped_to_each_tool_instance() {
+    const KEY: &str = "AIONRS_TEST_SCOPED_COMMAND_ENV";
+    unsafe {
+        std::env::remove_var(KEY);
+    }
+
+    let tool_a = ExecCommandTool::new(std::env::temp_dir()).with_env([(KEY.to_owned(), "conversation-a".to_owned())]);
+    let tool_b = ExecCommandTool::new(std::env::temp_dir()).with_env([(KEY.to_owned(), "conversation-b".to_owned())]);
+    let command = if cfg!(windows) {
+        format!("Write-Output $env:{KEY}")
+    } else {
+        format!("printf '%s' \"${KEY}\"")
+    };
+
+    let (result_a, result_b) = tokio::join!(
+        tool_a.execute(json!({ "cmd": command.clone() })),
+        tool_b.execute(json!({ "cmd": command })),
+    );
+
+    assert!(!result_a.is_error, "command should succeed: {}", result_a.content);
+    assert!(!result_b.is_error, "command should succeed: {}", result_b.content);
+    assert!(result_a.content.contains("conversation-a"));
+    assert!(result_b.content.contains("conversation-b"));
+    assert_eq!(std::env::var_os(KEY), None, "parent process env must remain unchanged");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

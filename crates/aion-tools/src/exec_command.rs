@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -16,11 +17,22 @@ const MAX_TIMEOUT_MS: u64 = 600_000;
 
 pub struct ExecCommandTool {
     cwd: PathBuf,
+    env: HashMap<String, String>,
 }
 
 impl ExecCommandTool {
     pub fn new(cwd: PathBuf) -> Self {
-        Self { cwd }
+        Self {
+            cwd,
+            env: HashMap::new(),
+        }
+    }
+
+    /// Add environment variables that are scoped to commands spawned by this
+    /// tool instance. The parent process environment is never mutated.
+    pub fn with_env(mut self, env: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.env.extend(env);
+        self
     }
 }
 
@@ -119,7 +131,7 @@ impl Tool for ExecCommandTool {
 
         let cwd = self.cwd.clone();
         let mut command_builder = shell_command_builder(&shell, command, false);
-        command_builder.current_dir(&cwd);
+        command_builder.current_dir(&cwd).envs(&self.env);
 
         let result = CommandRunner::new(command_builder).timeout(timeout).run().await;
 

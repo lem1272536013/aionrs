@@ -31,14 +31,21 @@ pub struct AgentSpawner {
     provider: Arc<dyn LlmProvider>,
     base_config: Config,
     cwd: PathBuf,
+    command_env: Vec<(String, String)>,
 }
 
 impl AgentSpawner {
-    pub fn new(provider: Arc<dyn LlmProvider>, config: Config, cwd: PathBuf) -> Self {
+    pub fn new(
+        provider: Arc<dyn LlmProvider>,
+        config: Config,
+        cwd: PathBuf,
+        command_env: Vec<(String, String)>,
+    ) -> Self {
         Self {
             provider,
             base_config: config,
             cwd,
+            command_env,
         }
     }
 
@@ -55,7 +62,7 @@ impl AgentSpawner {
 
         tracing::info!(target: "aion_agent", cwd = %self.cwd.display(), "sub-agent spawned with workspace cwd");
 
-        let tools = build_tool_registry(&[], &self.cwd);
+        let tools = build_tool_registry(&[], &self.cwd, &self.command_env);
         let output: Arc<dyn OutputSink> = Arc::new(NullSink);
         let mut engine = AgentEngine::new_with_provider(self.provider.clone(), config, tools, output, self.cwd.clone());
 
@@ -108,6 +115,7 @@ impl AgentSpawner {
             provider: self.provider.clone(),
             base_config: self.base_config.clone(),
             cwd: self.cwd.clone(),
+            command_env: self.command_env.clone(),
         }
     }
 }
@@ -127,7 +135,7 @@ impl Spawner for AgentSpawner {
             config.model = model;
         }
 
-        let tools = build_tool_registry(&overrides.allowed_tools, &self.cwd);
+        let tools = build_tool_registry(&overrides.allowed_tools, &self.cwd, &self.command_env);
         let output: Arc<dyn OutputSink> = Arc::new(NullSink);
         let mut engine = AgentEngine::new_with_provider(self.provider.clone(), config, tools, output, self.cwd.clone());
         engine.set_initial_reasoning_effort(overrides.effort.clone());
@@ -151,12 +159,15 @@ impl Spawner for AgentSpawner {
     }
 }
 
-fn build_tool_registry(allowed: &[String], cwd: &Path) -> ToolRegistry {
+fn build_tool_registry(allowed: &[String], cwd: &Path, command_env: &[(String, String)]) -> ToolRegistry {
     let all_tools: Vec<(&str, Box<dyn aion_tools::Tool>)> = vec![
         ("Read", Box::new(ReadTool::new(None))),
         ("Write", Box::new(WriteTool::new(None))),
         ("Edit", Box::new(EditTool::new(None))),
-        ("ExecCommand", Box::new(ExecCommandTool::new(cwd.to_path_buf()))),
+        (
+            "ExecCommand",
+            Box::new(ExecCommandTool::new(cwd.to_path_buf()).with_env(command_env.iter().cloned())),
+        ),
         ("Grep", Box::new(GrepTool::new(cwd.to_path_buf()))),
         ("Glob", Box::new(GlobTool::new(cwd.to_path_buf()))),
     ];

@@ -59,6 +59,7 @@ pub struct AgentBootstrap {
     config: Config,
     workspace: PathBuf,
     extra_skill_dirs: Vec<PathBuf>,
+    command_env: Vec<(String, String)>,
 
     // Output integration.
     output: Arc<dyn OutputSink>,
@@ -98,6 +99,7 @@ impl AgentBootstrap {
             config,
             workspace: PathBuf::from(workspace.into()),
             extra_skill_dirs: Vec::new(),
+            command_env: Vec::new(),
             output,
             provider: None,
             resume_session: None,
@@ -119,6 +121,12 @@ impl AgentBootstrap {
     /// Add extra directories to scan for skills.
     pub fn extra_skill_dirs(mut self, dirs: Vec<PathBuf>) -> Self {
         self.extra_skill_dirs = dirs;
+        self
+    }
+
+    /// Scope environment variables to commands spawned by this agent.
+    pub fn command_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.command_env = env;
         self
     }
 
@@ -185,7 +193,9 @@ impl AgentBootstrap {
         registry.register(Box::new(ReadTool::new(file_cache.clone())));
         registry.register(Box::new(WriteTool::new(file_cache.clone())));
         registry.register(Box::new(EditTool::new(file_cache)));
-        registry.register(Box::new(ExecCommandTool::new(workspace_path.to_path_buf())));
+        registry.register(Box::new(
+            ExecCommandTool::new(workspace_path.to_path_buf()).with_env(self.command_env.clone()),
+        ));
         registry.register(Box::new(GrepTool::new(workspace_path.to_path_buf())));
         registry.register(Box::new(GlobTool::new(workspace_path.to_path_buf())));
 
@@ -260,7 +270,12 @@ impl AgentBootstrap {
             skill_checker,
         )));
 
-        let spawner = AgentSpawner::new(Arc::clone(provider), self.config.clone(), workspace.to_path_buf());
+        let spawner = AgentSpawner::new(
+            Arc::clone(provider),
+            self.config.clone(),
+            workspace.to_path_buf(),
+            self.command_env.clone(),
+        );
         registry.register(Box::new(SpawnTool::new(Arc::new(spawner))));
     }
 
